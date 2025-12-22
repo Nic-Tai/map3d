@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Canvas, extend, ReactThreeFiber, useThree } from "@react-three/fiber";
 import { useAreaStore } from "@/state/areaStore";
 import { Html, Sky, Environment, Line } from "@react-three/drei";
@@ -365,10 +365,17 @@ function Roads({ area }: { area: any }) {
   }
 
   useEffect(() => {
-    const south = area[1].lat;
-    const west = area[1].lng;
-    const north = area[0].lat;
-    const east = area[0].lng;
+    // Ensure correct order: south < north, west < east
+    const lat1 = area[0].lat;
+    const lat2 = area[1].lat;
+    const lng1 = area[0].lng;
+    const lng2 = area[1].lng;
+    
+    const south = Math.min(lat1, lat2);
+    const north = Math.max(lat1, lat2);
+    const west = Math.min(lng1, lng2);
+    const east = Math.max(lng1, lng2);
+    
     const query = `[out:json][timeout:25];(way["highway"](${south},${west},${north},${east}););out body geom;`;
     fetch("https://overpass-api.de/api/interpreter", {
       method: "POST",
@@ -405,7 +412,7 @@ function Roads({ area }: { area: any }) {
 
         const lineGeometry: any = new THREE.BufferGeometry().setFromPoints(points);
 
-        return <Line points={points} color="#34f516" lineWidth={1}></Line>;
+        return <Line key={`road-${index}`} points={points} color="#34f516" lineWidth={1}></Line>;
       })}
     </>
   );
@@ -482,11 +489,107 @@ export function Export() {
   return null;
 }
 
-// Component to load and display GLB file
+// Individual mesh component for loaded GLB with click-to-delete
+function GlbMesh({ 
+  mesh, 
+  onDelete 
+}: { 
+  mesh: THREE.Mesh; 
+  onDelete: (mesh: THREE.Mesh) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [clicked, setClicked] = useState(false);
+  const [hoverPos, setHoverPos] = useState<THREE.Vector3 | null>(null);
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  // Clone the geometry and material to avoid modifying the original
+  const geometry = mesh.geometry.clone();
+  const originalMaterial = mesh.material as THREE.MeshStandardMaterial;
+  
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete(mesh);
+  };
+
+  return (
+    <mesh
+      ref={meshRef}
+      geometry={geometry}
+      position={mesh.position.clone()}
+      rotation={mesh.rotation.clone()}
+      scale={mesh.scale.clone()}
+      onPointerOver={(e) => {
+        setHovered(true);
+        e.stopPropagation();
+      }}
+      onPointerOut={(e) => {
+        setHovered(false);
+        e.stopPropagation();
+      }}
+      onPointerMove={(e) => {
+        setHoverPos(e.point.clone());
+        e.stopPropagation();
+      }}
+      onClick={(e) => {
+        setClicked(!clicked);
+        e.stopPropagation();
+      }}
+    >
+      <meshStandardMaterial 
+        color={hovered || clicked ? "#007bff" : (originalMaterial?.color || new THREE.Color("#9da0a3"))} 
+      />
+      {(hovered || clicked) && hoverPos && (
+        <Html position={[0, 2, 0]} center>
+          <div
+            style={{
+              color: "#000000",
+              backgroundColor: "#ffffff96",
+              backdropFilter: "blur(8px)",
+              border: "none",
+              padding: "14px",
+              borderRadius: "10px",
+              fontFamily: "system-ui, -apple-system, sans-serif",
+              fontSize: "13px",
+              width: "180px",
+              boxShadow: "0 2px 14px rgba(0, 0, 0, 0.16)",
+            }}
+          >
+            <div style={{ fontWeight: "600", fontSize: "15px", marginBottom: "8px" }}>
+              Imported Object
+            </div>
+            <div style={{ fontSize: "12px", color: "#5f6368", marginBottom: "10px" }}>
+              Click the button below to remove this object from the scene.
+            </div>
+            <button
+              onClick={handleDelete}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                backgroundColor: "#ef4444",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontWeight: "500",
+                fontSize: "13px",
+              }}
+              onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "#dc2626")}
+              onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "#ef4444")}
+            >
+              🗑️ Delete Object
+            </button>
+          </div>
+        </Html>
+      )}
+    </mesh>
+  );
+}
+
+// Component to load and display GLB file with interactive meshes
 function LoadedGlb() {
   const loadedGlb = useAreaStore((state) => state.loadedGlb);
-  const [model, setModel] = useState<THREE.Group | null>(null);
-  const { scene } = useThree();
+  const [meshes, setMeshes] = useState<THREE.Mesh[]>([]);
+  const [deletedMeshIds, setDeletedMeshIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (loadedGlb) {
@@ -495,11 +598,25 @@ function LoadedGlb() {
         loadedGlb,
         "",
         (gltf) => {
-          // Remove previous model if exists
-          if (model) {
-            scene.remove(model);
-          }
-          setModel(gltf.scene);
+          const extractedMeshes: THREE.Mesh[] = [];
+          gltf.scene.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              // Store world transform
+              child.updateMatrixWorld(true);
+              const worldPos = new THREE.Vector3();
+              const worldQuat = new THREE.Quaternion();
+              const worldScale = new THREE.Vector3();
+              child.matrixWorld.decompose(worldPos, worldQuat, worldScale);
+              
+              const clonedMesh = child.clone();
+              clonedMesh.position.copy(worldPos);
+              clonedMesh.quaternion.copy(worldQuat);
+              clonedMesh.scale.copy(worldScale);
+              extractedMeshes.push(clonedMesh);
+            }
+          });
+          setMeshes(extractedMeshes);
+          setDeletedMeshIds(new Set());
         },
         (error) => {
           console.error("Error loading GLB:", error);
@@ -508,9 +625,29 @@ function LoadedGlb() {
     }
   }, [loadedGlb]);
 
-  if (!model) return null;
+  const handleDeleteMesh = (meshToDelete: THREE.Mesh) => {
+    const meshIndex = meshes.indexOf(meshToDelete);
+    if (meshIndex !== -1) {
+      setDeletedMeshIds((prev) => new Set([...prev, meshIndex]));
+    }
+  };
 
-  return <primitive object={model} />;
+  if (meshes.length === 0) return null;
+
+  return (
+    <group>
+      {meshes.map((mesh, index) => {
+        if (deletedMeshIds.has(index)) return null;
+        return (
+          <GlbMesh 
+            key={index} 
+            mesh={mesh} 
+            onDelete={handleDeleteMesh}
+          />
+        );
+      })}
+    </group>
+  );
 }
 
 export function Space() {
@@ -589,7 +726,8 @@ export function Space() {
       {/* Show loaded GLB model */}
       {isGlbMode && <LoadedGlb />}
 
-      {!isGlbMode && <Roads area={realCenter} />}
+      {/* Show roads when we have map data (not in GLB mode) */}
+      <Roads area={realCenter} />
       <pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI} />
       <Car />
       <Export />
