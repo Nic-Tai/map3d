@@ -12,7 +12,7 @@ import {
   PrevButton,
 } from "@/components/button/BottomButton";
 import { BuildingHeights } from "@/components/map/Processing";
-import { ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Upload, Trash2 } from "lucide-react";
 import { useAreaStore } from "@/state/areaStore";
 import { useActionStore } from "@/state/exportStore";
 import { Modal } from "@/components/modal/Modal";
@@ -39,6 +39,10 @@ function App() {
 
   const setCenter = useAreaStore((state) => state.setCenter);
   const areas = useAreaStore((state) => state.areas);
+  const setLoadedGlb = useAreaStore((state) => state.setLoadedGlb);
+  const setIsGlbMode = useAreaStore((state) => state.setIsGlbMode);
+  const isGlbMode = useAreaStore((state) => state.isGlbMode);
+  const clearAll = useAreaStore((state) => state.clearAll);
   const setAction = useActionStore((state) => state.setAction);
   const setFleet = useActionStore((state) => state.setFleet);
 
@@ -125,6 +129,28 @@ function App() {
     setIsExportModal(true);
   };
 
+  const handleGlbUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = e.target?.result as ArrayBuffer;
+        setLoadedGlb(arrayBuffer);
+        setIsGlbMode(true);
+        setStep(2); // Go directly to view step
+        setIsNextButtonDisabled(false);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
+  const handleClearAndRestart = () => {
+    clearAll();
+    setStep(0);
+    setIsNextButtonDisabled(true);
+    setAreaData([]);
+  };
+
   useEffect(() => {
     checkFleetLogin();
   }, []);
@@ -149,6 +175,66 @@ function App() {
               format
             </Description>
           </Column>
+
+          {/* GLB Upload Section */}
+          <div
+            css={css({
+              display: "flex",
+              gap: "1rem",
+              alignItems: "center",
+              padding: "1rem",
+              backgroundColor: "#f8fafc",
+              borderRadius: "12px",
+              border: "2px dashed #cbd5e1",
+              marginBottom: "0.5rem",
+            })}
+          >
+            <div css={css({ flex: 1 })}>
+              <div css={css({ fontWeight: 600, color: "#334155", marginBottom: "4px" })}>
+                Load existing GLB
+              </div>
+              <div css={css({ fontSize: "13px", color: "#64748b" })}>
+                Upload a previously exported GLB file to view it directly
+              </div>
+            </div>
+            <label
+              css={css({
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                padding: "0.5rem 1rem",
+                backgroundColor: "#6366f1",
+                color: "#ffffff",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: 500,
+                fontSize: "14px",
+                transition: "background-color 0.2s",
+                ":hover": {
+                  backgroundColor: "#4f46e5",
+                },
+              })}
+            >
+              <Upload css={IconSize} />
+              Upload GLB
+              <input
+                type="file"
+                accept=".glb"
+                onChange={handleGlbUpload}
+                css={css({ display: "none" })}
+              />
+            </label>
+          </div>
+
+          <div css={css({ 
+            textAlign: "center", 
+            color: "#94a3b8", 
+            fontSize: "13px",
+            fontWeight: 500,
+          })}>
+            — OR select area from map —
+          </div>
+
           <MapComponent
             onRemove={handleRemove}
             onDone={handleDone}
@@ -179,14 +265,49 @@ function App() {
             backgroundColor: "#ffffffc9",
             backdropFilter: "blur(8px)",
             padding: "1rem",
-            borderRadius: "8px",
+            borderRadius: "12px",
+            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.1)",
+            maxWidth: "280px",
           })}
         >
-          <Column gap="0.5rem">
+          <Column gap="0.75rem">
             <Title>3D View</Title>
             <Description>
-              Explore the 3D map. Use mouse to orbit, scroll to zoom.
+              {isGlbMode 
+                ? "Viewing uploaded GLB file. Use mouse to orbit, scroll to zoom."
+                : `Showing ${areas.length} buildings. Click a building to see info or delete it.`
+              }
             </Description>
+            
+            <div css={css({ 
+              display: "flex", 
+              gap: "0.5rem",
+              marginTop: "0.5rem",
+            })}>
+              <button
+                onClick={handleClearAndRestart}
+                css={css({
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  padding: "0.5rem 0.75rem",
+                  backgroundColor: "#f1f5f9",
+                  color: "#475569",
+                  border: "none",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  transition: "all 0.2s",
+                  ":hover": {
+                    backgroundColor: "#e2e8f0",
+                  },
+                })}
+              >
+                <Trash2 css={css({ width: "14px", height: "14px" })} />
+                Clear & Restart
+              </button>
+            </div>
           </Column>
         </div>
       )}

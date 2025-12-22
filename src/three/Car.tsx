@@ -3,6 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { useCarStore } from "@/state/carStore";
+import { MOUSE } from "three";
 
 const Car = () => {
   const carRef = useRef(null);
@@ -142,7 +143,17 @@ const Car = () => {
         <boxGeometry args={[0.2, 0.2, 0.4]} />
         <meshStandardMaterial color="orange" />
       </mesh>
-      {!thirdMode && <OrbitControls />}
+      {!thirdMode && (
+        <OrbitControls 
+          makeDefault 
+          enableDamping={false}
+          mouseButtons={{
+            LEFT: null as any, // Disable left click for orbit - allow it to pass through to buildings
+            MIDDLE: MOUSE.DOLLY,
+            RIGHT: MOUSE.ROTATE,
+          }}
+        />
+      )}
     </>
   );
 };

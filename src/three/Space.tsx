@@ -4,7 +4,7 @@ import { useAreaStore } from "@/state/areaStore";
 import { Html, Sky, Environment, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { useActionStore } from "@/state/exportStore";
-import { GLTFExporter } from "three/examples/jsm/Addons.js";
+import { GLTFExporter, GLTFLoader } from "three/examples/jsm/Addons.js";
 import Car from "./Car";
 import instanceFleet from "@/api/axios";
 
@@ -14,16 +14,28 @@ function Building({
   shape,
   extrudeSettings,
   tags,
+  buildingId,
+  onDelete,
 }: {
   shape: THREE.Shape;
   extrudeSettings: any;
   tags: any;
+  buildingId: number;
+  onDelete?: (id: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [clicked, setClicked] = useState(false);
   const [hoverPos, setHoverPos] = useState<THREE.Vector3 | null>(null);
   const [showTranslations, setShowTranslations] = useState(false);
   const [showAdditionalInfo, setShowAdditionalInfo] = useState(false);
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onDelete) {
+      onDelete(buildingId);
+    }
+  };
+
   return (
     <mesh
       onPointerOver={(e) => {
@@ -304,6 +316,35 @@ function Building({
                 )}
               </div>
             )}
+            {onDelete && (
+              <div
+                style={{
+                  marginTop: "12px",
+                  borderTop: "1px solid rgba(0, 0, 0, 0.08)",
+                  paddingTop: "10px",
+                }}
+              >
+                <button
+                  onClick={handleDelete}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    backgroundColor: "#ef4444",
+                    color: "#ffffff",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: "500",
+                    fontSize: "13px",
+                    transition: "background-color 0.2s",
+                  }}
+                  onMouseOver={(e) => (e.currentTarget.style.backgroundColor = "#dc2626")}
+                  onMouseOut={(e) => (e.currentTarget.style.backgroundColor = "#ef4444")}
+                >
+                  🗑️ Delete Building
+                </button>
+              </div>
+            )}
           </div>
         </Html>
       )}
@@ -441,8 +482,41 @@ export function Export() {
   return null;
 }
 
+// Component to load and display GLB file
+function LoadedGlb() {
+  const loadedGlb = useAreaStore((state) => state.loadedGlb);
+  const [model, setModel] = useState<THREE.Group | null>(null);
+  const { scene } = useThree();
+
+  useEffect(() => {
+    if (loadedGlb) {
+      const loader = new GLTFLoader();
+      loader.parse(
+        loadedGlb,
+        "",
+        (gltf) => {
+          // Remove previous model if exists
+          if (model) {
+            scene.remove(model);
+          }
+          setModel(gltf.scene);
+        },
+        (error) => {
+          console.error("Error loading GLB:", error);
+        }
+      );
+    }
+  }, [loadedGlb]);
+
+  if (!model) return null;
+
+  return <primitive object={model} />;
+}
+
 export function Space() {
   const areas = useAreaStore((state) => state.areas);
+  const removeArea = useAreaStore((state) => state.removeArea);
+  const isGlbMode = useAreaStore((state) => state.isGlbMode);
   const [realCenter, setRealCenter] = useState<any>();
   const center = useAreaStore((state) => state.center);
   const refLat = (center[1].lat + center[0].lat) / 2;
@@ -454,11 +528,16 @@ export function Space() {
     return new THREE.Vector2(x, y);
   }
 
+  const handleDeleteBuilding = (id: number) => {
+    removeArea(id);
+  };
+
   const areaData = () => {
     const result: Array<{
       shape: THREE.Shape;
       extrudeSettings: any;
       tags: any;
+      id: number;
     }> = [];
     areas.forEach((bld: any) => {
       if (!bld.geometry || bld.geometry.length < 3) return;
@@ -475,7 +554,7 @@ export function Space() {
         depth: heightValue,
         bevelEnabled: false,
       };
-      result.push({ shape, extrudeSettings, tags: bld.tags });
+      result.push({ shape, extrudeSettings, tags: bld.tags, id: bld.id });
     });
     return result;
   };
@@ -487,19 +566,30 @@ export function Space() {
   const buildingsData = areaData();
 
   return (
-    <Canvas camera={{ fov: 90, near: 0.1, far: 7000 }}>
+    <Canvas 
+      camera={{ fov: 90, near: 0.1, far: 7000 }} 
+      raycaster={{ params: { Line: { threshold: 0.1 } } }}
+      onPointerMissed={() => {}}
+    >
       <ambientLight intensity={Math.PI / 2} />
       <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} decay={0} intensity={Math.PI} />
-      {buildingsData.map((item, index) => (
+      
+      {/* Show buildings from map selection */}
+      {!isGlbMode && buildingsData.map((item) => (
         <Building
-          key={index}
+          key={item.id}
+          buildingId={item.id}
           shape={item.shape}
           extrudeSettings={item.extrudeSettings}
           tags={item.tags}
+          onDelete={handleDeleteBuilding}
         />
       ))}
 
-      <Roads area={realCenter} />
+      {/* Show loaded GLB model */}
+      {isGlbMode && <LoadedGlb />}
+
+      {!isGlbMode && <Roads area={realCenter} />}
       <pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI} />
       <Car />
       <Export />
