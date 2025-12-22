@@ -29,7 +29,7 @@ const IconSize = css({
 function App() {
   const [isNextButtonDisabled, setIsNextButtonDisabled] = useState(true);
   const [areaData, setAreaData] = useState([]);
-  const [steps, setSteps] = useState(["front", "processing"]);
+  const [steps, setSteps] = useState(["front", "processing", "view"]);
   const [step, setStep] = useState(0);
   const [isWarnModal, setIsWarnModal] = useState(false);
   const [isExportModal, setIsExportModal] = useState(false);
@@ -38,6 +38,7 @@ function App() {
   const [spaceList, setSpaceList] = useState([]);
 
   const setCenter = useAreaStore((state) => state.setCenter);
+  const areas = useAreaStore((state) => state.areas);
   const setAction = useActionStore((state) => state.setAction);
   const setFleet = useActionStore((state) => state.setFleet);
 
@@ -128,6 +129,13 @@ function App() {
     checkFleetLogin();
   }, []);
 
+  // Enable next button when buildings are loaded on processing step
+  useEffect(() => {
+    if (step === 1 && areas && areas.length > 0) {
+      setIsNextButtonDisabled(false);
+    }
+  }, [areas, step]);
+
   return (
     <div css={css({ height: "100%", width: "100%" })}>
       <TopNav step={step} />
@@ -160,6 +168,28 @@ function App() {
           </Column>
         </Column>
       </FullscreenModal>
+
+      {steps[step] == "view" && (
+        <div
+          css={css({
+            position: "fixed",
+            top: "4rem",
+            left: "1rem",
+            zIndex: 10,
+            backgroundColor: "#ffffffc9",
+            backdropFilter: "blur(8px)",
+            padding: "1rem",
+            borderRadius: "8px",
+          })}
+        >
+          <Column gap="0.5rem">
+            <Title>3D View</Title>
+            <Description>
+              Explore the 3D map. Use mouse to orbit, scroll to zoom.
+            </Description>
+          </Column>
+        </div>
+      )}
 
       <PrevButton isShow={step != 0} onClick={handleClickPrevStep}>
         <ChevronLeft css={IconSize} /> Prev Step

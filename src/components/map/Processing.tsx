@@ -21,6 +21,10 @@ export function BuildingHeights({ area }: { area: any }) {
   const appendAreas = useAreaStore((state) => state.appendAreas);
 
   const requestBuildings = () => {
+    if (!area || area.length < 2) {
+      console.error("Area data is not available");
+      return;
+    }
     setLoading(true);
 
     const south = area[1].lat;

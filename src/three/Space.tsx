@@ -334,11 +334,22 @@ function Roads({ area }: { area: any }) {
       body: query,
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     })
-      .then((response) => response.json())
-      .then((data) => {
-        setRoads(data.elements);
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Response is not JSON");
+        }
+        return response.json();
       })
-      .catch((err) => console.error(err));
+      .then((data) => {
+        if (data && data.elements) {
+          setRoads(data.elements);
+        }
+      })
+      .catch((err) => console.error("Error fetching roads:", err));
   }, [area]);
 
   return (
