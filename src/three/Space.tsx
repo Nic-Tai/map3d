@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Canvas, extend, ReactThreeFiber, useThree } from "@react-three/fiber";
 import { useAreaStore } from "@/state/areaStore";
 import { Html, Sky, Environment, Line } from "@react-three/drei";
@@ -7,8 +7,20 @@ import { useActionStore } from "@/state/exportStore";
 import { GLTFExporter, GLTFLoader } from "three/examples/jsm/Addons.js";
 import Car from "./Car";
 import instanceFleet from "@/api/axios";
+import { create } from "zustand";
 
 const scale = 51000;
+
+// Store to track which building is currently selected (only one at a time)
+type SelectionStore = {
+  selectedId: string | null;
+  setSelectedId: (id: string | null) => void;
+};
+
+const useSelectionStore = create<SelectionStore>((set) => ({
+  selectedId: null,
+  setSelectedId: (id) => set({ selectedId: id }),
+}));
 
 function Building({
   shape,
@@ -24,20 +36,50 @@ function Building({
   onDelete?: (id: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const [clicked, setClicked] = useState(false);
   const [hoverPos, setHoverPos] = useState<THREE.Vector3 | null>(null);
   const [showTranslations, setShowTranslations] = useState(false);
   const [showAdditionalInfo, setShowAdditionalInfo] = useState(false);
+  
+  const selectedId = useSelectionStore((state) => state.selectedId);
+  const setSelectedId = useSelectionStore((state) => state.setSelectedId);
+  const uniqueId = `building-${buildingId}`;
+  const isSelected = selectedId === uniqueId;
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (onDelete) {
       onDelete(buildingId);
+      setSelectedId(null);
     }
   };
 
+  // Keyboard delete handler
+  useEffect(() => {
+    if (!isSelected) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        if (onDelete) {
+          onDelete(buildingId);
+          setSelectedId(null);
+        }
+      } else if (e.key === "Escape") {
+        setSelectedId(null);
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSelected, onDelete, buildingId, setSelectedId]);
+
+  // Generate mesh name from tags
+  const meshName = tags.name || `Building_${buildingId}`;
+
   return (
     <mesh
+      name={meshName}
+      userData={{ buildingId, tags, name: meshName }}
       onPointerOver={(e) => {
         setHovered(true);
         e.stopPropagation();
@@ -51,14 +93,15 @@ function Building({
         e.stopPropagation();
       }}
       onClick={(e) => {
-        setClicked(!clicked);
+        // Toggle selection - if already selected, deselect; otherwise select this one
+        setSelectedId(isSelected ? null : uniqueId);
         e.stopPropagation();
       }}
       rotation={[-Math.PI / 2, 0, 0]}
     >
       <extrudeGeometry args={[shape, extrudeSettings]} />
-      <meshStandardMaterial color={hovered || clicked ? "#007bff" : "#9da0a3"} />
-      {(hovered || clicked) && hoverPos && (
+      <meshStandardMaterial color={hovered || isSelected ? "#007bff" : "#9da0a3"} />
+      {(hovered || isSelected) && hoverPos && (
         <Html position={[hoverPos.x, hoverPos.y + extrudeSettings.depth + 0.5, hoverPos.z]} center>
           <div
             role="dialog"
@@ -324,6 +367,15 @@ function Building({
                   paddingTop: "10px",
                 }}
               >
+                <div style={{ fontSize: "11px", color: "#5f6368", marginBottom: "8px", textAlign: "center" }}>
+                  Press <kbd style={{ 
+                    backgroundColor: "#e5e7eb", 
+                    padding: "2px 6px", 
+                    borderRadius: "4px",
+                    fontFamily: "monospace",
+                    fontSize: "10px"
+                  }}>Delete</kbd> or click button
+                </div>
                 <button
                   onClick={handleDelete}
                   style={{
@@ -456,7 +508,8 @@ export function Export() {
       if ((child as any).isHtml === true) child.parent?.remove(child);
     });
     const exporter = new GLTFExporter();
-    const options = { binary: true, embedImages: true };
+    // Include userData to preserve building names and metadata
+    const options = { binary: true, embedImages: true, includeCustomExtensions: true };
     exporter.parse(
       sceneClone,
       (result) => {
@@ -491,25 +544,53 @@ export function Export() {
 
 // Individual mesh component for loaded GLB with click-to-delete
 function GlbMesh({ 
-  mesh, 
+  mesh,
+  meshIndex,
   onDelete 
 }: { 
-  mesh: THREE.Mesh; 
+  mesh: THREE.Mesh;
+  meshIndex: number;
   onDelete: (mesh: THREE.Mesh) => void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const [clicked, setClicked] = useState(false);
   const [hoverPos, setHoverPos] = useState<THREE.Vector3 | null>(null);
   const meshRef = useRef<THREE.Mesh>(null);
+
+  const selectedId = useSelectionStore((state) => state.selectedId);
+  const setSelectedId = useSelectionStore((state) => state.setSelectedId);
+  const uniqueId = `glb-mesh-${meshIndex}`;
+  const isSelected = selectedId === uniqueId;
 
   // Clone the geometry and material to avoid modifying the original
   const geometry = mesh.geometry.clone();
   const originalMaterial = mesh.material as THREE.MeshStandardMaterial;
   
+  // Get the mesh name from the original mesh
+  const meshName = mesh.name || mesh.userData?.name || `Object ${meshIndex + 1}`;
+  
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     onDelete(mesh);
+    setSelectedId(null);
   };
+
+  // Keyboard delete handler
+  useEffect(() => {
+    if (!isSelected) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        onDelete(mesh);
+        setSelectedId(null);
+      } else if (e.key === "Escape") {
+        setSelectedId(null);
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSelected, onDelete, mesh, setSelectedId]);
 
   return (
     <mesh
@@ -531,14 +612,15 @@ function GlbMesh({
         e.stopPropagation();
       }}
       onClick={(e) => {
-        setClicked(!clicked);
+        // Toggle selection - if already selected, deselect; otherwise select this one
+        setSelectedId(isSelected ? null : uniqueId);
         e.stopPropagation();
       }}
     >
       <meshStandardMaterial 
-        color={hovered || clicked ? "#007bff" : (originalMaterial?.color || new THREE.Color("#9da0a3"))} 
+        color={hovered || isSelected ? "#007bff" : (originalMaterial?.color || new THREE.Color("#9da0a3"))} 
       />
-      {(hovered || clicked) && hoverPos && (
+      {(hovered || isSelected) && hoverPos && (
         <Html position={[0, 2, 0]} center>
           <div
             style={{
@@ -550,15 +632,21 @@ function GlbMesh({
               borderRadius: "10px",
               fontFamily: "system-ui, -apple-system, sans-serif",
               fontSize: "13px",
-              width: "180px",
+              width: "200px",
               boxShadow: "0 2px 14px rgba(0, 0, 0, 0.16)",
             }}
           >
             <div style={{ fontWeight: "600", fontSize: "15px", marginBottom: "8px" }}>
-              Imported Object
+              {meshName}
             </div>
             <div style={{ fontSize: "12px", color: "#5f6368", marginBottom: "10px" }}>
-              Click the button below to remove this object from the scene.
+              Press <kbd style={{ 
+                backgroundColor: "#e5e7eb", 
+                padding: "2px 6px", 
+                borderRadius: "4px",
+                fontFamily: "monospace",
+                fontSize: "11px"
+              }}>Delete</kbd> or click button to remove.
             </div>
             <button
               onClick={handleDelete}
@@ -641,7 +729,8 @@ function LoadedGlb() {
         return (
           <GlbMesh 
             key={index} 
-            mesh={mesh} 
+            mesh={mesh}
+            meshIndex={index}
             onDelete={handleDeleteMesh}
           />
         );
